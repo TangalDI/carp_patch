@@ -1,0 +1,114 @@
+--- sys/netinet/ip_carp.c.orig	2019-04-01 14:08:44.029062000 +0300
++++ sys/netinet/ip_carp.c	2019-04-03 17:23:01.904447000 +0300
+@@ -322,6 +322,21 @@
+ static struct task carp_sendall_task =
+     TASK_INITIALIZER(0, carp_send_ad_all, NULL);
+ 
++static u_short
++vrrp_cksum(const unsigned char *w, int len)
++{
++        u_short answer;
++        int sum = 0;
++
++        while (len-- > 0)
++                sum += *(w+len)<<8*(len % 2);
++
++        sum = (sum >> 16) + (sum & 0xffff);
++        sum += (sum >> 16);
++        answer = ~sum;
++        return (answer);
++}
++
+ static void
+ carp_hmac_prepare(struct carp_softc *sc)
+ {
+@@ -621,12 +636,12 @@
+ 	CARP_LOCK(sc);
+ 	ifa_free(ifa);
+ 
+-	if (carp_hmac_verify(sc, ch->carp_counter, ch->carp_md)) {
++	/*if (carp_hmac_verify(sc, ch->carp_counter, ch->carp_md)) {
+ 		CARPSTATS_INC(carps_badauth);
+ 		CARP_DEBUG("%s: incorrect hash for VHID %u@%s\n", __func__,
+ 		    sc->sc_vhid, ifp->if_xname);
+ 		goto out;
+-	}
++	}*/
+ 
+ 	tmp_counter = ntohl(ch->carp_counter[0]);
+ 	tmp_counter = tmp_counter<<32;
+@@ -650,7 +665,7 @@
+ 		 * If we receive an advertisement from a master who's going to
+ 		 * be more frequent than us, go into BACKUP state.
+ 		 */
+-		if (timevalcmp(&sc_tv, &ch_tv, >) ||
++		if (timevalcmp(&sc_tv, &ch_tv, <) ||
+ 		    timevalcmp(&sc_tv, &ch_tv, ==)) {
+ 			callout_stop(&sc->sc_ad_tmo);
+ 			carp_set_state(sc, BACKUP,
+@@ -664,7 +679,7 @@
+ 		 * If we're pre-empting masters who advertise slower than us,
+ 		 * and this one claims to be slower, treat him as down.
+ 		 */
+-		if (V_carp_preempt && timevalcmp(&sc_tv, &ch_tv, <)) {
++		if (V_carp_preempt && timevalcmp(&sc_tv, &ch_tv, >)) {
+ 			carp_master_down_locked(sc,
+ 			    "preempting a slower master");
+ 			break;
+@@ -689,7 +704,7 @@
+ 		break;
+ 	}
+ 
+-out:
++//out:
+ 	CARP_UNLOCK(sc);
+ 	m_freem(m);
+ }
+@@ -707,10 +722,8 @@
+ 	} else
+ 		sc->sc_counter++;
+ 
+-	ch->carp_counter[0] = htonl((sc->sc_counter>>32)&0xffffffff);
+-	ch->carp_counter[1] = htonl(sc->sc_counter&0xffffffff);
+-
+-	carp_hmac_generate(sc, ch->carp_counter, ch->carp_md);
++	bzero(ch->carp_counter,12);
++	ch->carp_counter[0] = (u_int32_t)(ifatoia(sc->sc_ifas[0])->ia_addr.sin_addr.s_addr);
+ 
+ 	/* Tag packet for carp_output */
+ 	if ((mtag = m_tag_get(PACKET_TAG_CARP, sizeof(struct carp_softc *),
+@@ -810,7 +823,7 @@
+ 	ch.carp_vhid = sc->sc_vhid;
+ 	ch.carp_advbase = sc->sc_advbase;
+ 	ch.carp_advskew = advskew;
+-	ch.carp_authlen = 7;	/* XXX DEFINE */
++	ch.carp_authlen = 1;
+ 	ch.carp_pad1 = 0;	/* must be zero */
+ 	ch.carp_cksum = 0;
+ 
+@@ -859,7 +872,7 @@
+ 			goto resched;
+ 
+ 		m->m_data += sizeof(*ip);
+-		ch_ptr->carp_cksum = in_cksum(m, len - sizeof(*ip));
++		ch_ptr->carp_cksum = vrrp_cksum((unsigned char*)m->m_data, len - sizeof(*ip));
+ 		m->m_data -= sizeof(*ip);
+ 
+ 		CARPSTATS_INC(carps_opackets);
+--- sys/netinet/ip_carp.h.orig	2019-04-02 17:38:00.096804000 +0300
++++ sys/netinet/ip_carp.h	2019-04-03 17:13:50.858265000 +0300
+@@ -72,12 +72,11 @@
+ 	u_int8_t	carp_pad1;	/* reserved */
+ 	u_int8_t	carp_advbase;	/* advertisement interval */
+ 	u_int16_t	carp_cksum;
+-	u_int32_t	carp_counter[2];
+-	unsigned char	carp_md[20];	/* SHA1 HMAC */
++	u_int32_t	carp_counter[3];
+ } __packed;
+ 
+ #ifdef CTASSERT
+-CTASSERT(sizeof(struct carp_header) == 36);
++CTASSERT(sizeof(struct carp_header) == 20);
+ #endif
+ 
+ #define	CARP_DFLTTL		255
