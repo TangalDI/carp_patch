@@ -1,2 +1,2 @@
 # carp_patch
-Patch for freebsd CARP to VRRP compatibility
+Freebsd carp is not compatible with vrrp. This patch allows you to use carp with vrrp devices. Tested on freebsd 11.2 and mikrotik ccr1036.
