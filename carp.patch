@@ -1,15 +1,16 @@
---- sys/netinet/ip_carp.c.orig  2024-11-17 10:19:31.564178000 +0300
-+++ sys/netinet/ip_carp.c       2024-11-17 13:09:15.005073000 +0300
-@@ -370,6 +370,21 @@
+--- sys/netinet/ip_carp.c.orig  2025-11-28 03:00:00.000000000 +0300
++++ sys/netinet/ip_carp.c       2026-04-15 19:19:05.232426000 +0300
+@@ -378,7 +378,22 @@
+
         return (0);
  }
-
++
 +static u_short
 +vrrp_cksum(const unsigned char *w, int len)
 +{
 +        u_short answer;
 +        int sum = 0;
-+
+
 +        while (len-- > 0)
 +                sum += *(w+len)<<8*(len % 2);
 +
@@ -22,7 +23,7 @@
  static void
  carp_hmac_prepare(struct carp_softc *sc)
  {
-@@ -736,12 +751,12 @@
+@@ -867,12 +882,12 @@
                 goto out;
         }
 
@@ -37,7 +38,7 @@
 
         tmp_counter = ntohl(ch->carp_counter[0]);
         tmp_counter = tmp_counter<<32;
-@@ -765,7 +780,7 @@
+@@ -896,7 +911,7 @@
                  * If we receive an advertisement from a master who's going to
                  * be more frequent than us, go into BACKUP state.
                  */
@@ -46,7 +47,7 @@
                     timevalcmp(&sc_tv, &ch_tv, ==)) {
                         callout_stop(&sc->sc_ad_tmo);
                         carp_set_state(sc, BACKUP,
-@@ -779,7 +794,7 @@
+@@ -910,7 +925,7 @@
                  * If we're pre-empting masters who advertise slower than us,
                  * and this one claims to be slower, treat him as down.
                  */
@@ -55,21 +56,20 @@
                         carp_master_down_locked(sc,
                             "preempting a slower master");
                         break;
-@@ -822,11 +837,9 @@
+@@ -1075,10 +1090,8 @@
         } else
                 sc->sc_counter++;
 
 -       ch->carp_counter[0] = htonl((sc->sc_counter>>32)&0xffffffff);
 -       ch->carp_counter[1] = htonl(sc->sc_counter&0xffffffff);
+-
+-       carp_hmac_generate(sc, ch->carp_counter, ch->carp_md);
 +       bzero(ch->carp_counter,12);
 +       ch->carp_counter[0] = (u_int32_t)(ifatoia(sc->sc_ifas[0])->ia_addr.sin_addr.s_addr);
+ }
 
--       carp_hmac_generate(sc, ch->carp_counter, ch->carp_md);
--
-        /* Tag packet for carp_output */
-        if ((mtag = m_tag_get(PACKET_TAG_CARP, sizeof(struct carp_softc *),
-            M_NOWAIT)) == NULL) {
-@@ -968,7 +981,7 @@
+ static inline void
+@@ -1223,7 +1236,7 @@
         ch.carp_vhid = sc->sc_vhid;
         ch.carp_advbase = sc->sc_advbase;
         ch.carp_advskew = advskew;
@@ -78,7 +78,7 @@
         ch.carp_pad1 = 0;       /* must be zero */
         ch.carp_cksum = 0;
 
-@@ -1016,7 +1029,7 @@
+@@ -1273,7 +1286,7 @@
                         goto resched;
 
                 m->m_data += sizeof(*ip);
@@ -87,9 +87,9 @@
                 m->m_data -= sizeof(*ip);
 
                 CARPSTATS_INC(carps_opackets);
---- sys/netinet/ip_carp.h.orig  2024-11-17 10:19:32.127153000 +0300
-+++ sys/netinet/ip_carp.h       2024-11-17 12:14:54.100930000 +0300
-@@ -73,12 +73,11 @@
+--- sys/netinet/ip_carp.h.orig  2025-11-28 03:00:00.000000000 +0300
++++ sys/netinet/ip_carp.h       2026-04-15 19:16:15.780718000 +0300
+@@ -74,11 +74,10 @@
         u_int8_t        carp_pad1;      /* reserved */
         u_int8_t        carp_advbase;   /* advertisement interval */
         u_int16_t       carp_cksum;
@@ -98,9 +98,8 @@
 +       u_int32_t       carp_counter[3];
  } __packed;
 
- #ifdef CTASSERT
 -CTASSERT(sizeof(struct carp_header) == 36);
 +CTASSERT(sizeof(struct carp_header) == 20);
- #endif
 
- #define        CARP_DFLTTL             255
+ /*
+  * The VRRPv3 header layout is as follows:
